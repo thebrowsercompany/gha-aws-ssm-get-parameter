@@ -1,0 +1,58 @@
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    permissions:
+      contents: read
+      # required to make OIDC work
+      id-token: write
+
+    strategy:
+      matrix:
+        os: [windows-latest]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: thebrowsercompany/gha-aws-ssm-get-parameter@main
+        with:
+          aws-role-to-assume: ${{ secrets.TEST_AWS_ROLE }}
+          aws-role-session-name: AwsSsmGetParameterTest
+          aws-ssm-parameter: ${{ secrets.TEST_AWS_SSM_PARAMETER }}
+          save-to-filepath: ${{ github.workspace }}/aws-ssm-parameter.txt
+          save-to-env-var: AWS_SSM_PARAMETER
+
+      - name: Assert parameter was saved
+        id: assert
+        continue-on-error: true
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $AwsSsmParmeter=$(Get-Content ${{ github.workspace }}/aws-ssm-parameter.txt)
+          if ( $AwsSsmParameter -eq "" ) {
+            "save-to-filepath failed"
+            "failed=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+
+          if ( $env:AWS_SSM_PARAMETER -eq "" ) {
+            "save-to-env-var failed"
+            "failed=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+
+          if ( $AwsSsmParameter != $env:AWS_SSM_PARAMETER ) {
+            "parameter values do not match"
+            "failed=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+
+      - name: Cleanup parameter
+        shell: pwsh
+        run: Remote-Item -Force ${{ github.workspace }}/aws-ssm-parameter.txt
+
+      - name: Fail
+        if: steps.assert.output.failed == 'true'
+        shell: pwsh
+        run: exit 1
+
+
