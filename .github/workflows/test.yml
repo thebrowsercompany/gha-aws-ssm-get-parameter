@@ -12,11 +12,14 @@ jobs:
 
     strategy:
       matrix:
-        os: [windows-latest]
+        os: [ windows-latest, macos-latest, ubuntu-latest ]
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: thebrowsercompany/gha-aws-ssm-get-parameter@main
+      - uses: actions/checkout@v4
+
+      - name: Run this action
+        uses: ./
         with:
           aws-role-to-assume: ${{ secrets.TEST_AWS_ROLE }}
           aws-role-session-name: AwsSsmGetParameterTest
@@ -26,33 +29,29 @@ jobs:
 
       - name: Assert parameter was saved
         id: assert
-        continue-on-error: true
-        if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $AwsSsmParmeter=$(Get-Content ${{ github.workspace }}/aws-ssm-parameter.txt)
-          if ( $AwsSsmParameter -eq "" ) {
-            "save-to-filepath failed"
-            "failed=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
+          # Handle Windows path separators.
+          OUTPUT_FILE=$(sed "s/\\\/\//g" <<< "${{ github.workspace }}/aws-ssm-parameter.txt")
+          VAL_FROM_FILE=$(cat $OUTPUT_FILE)
+          VAL_FROM_ENV="$AWS_SSM_PARAMETER"
 
-          if ( $env:AWS_SSM_PARAMETER -eq "" ) {
-            "save-to-env-var failed"
-            "failed=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
+          if [[ -z "$VAL_FROM_FILE" ]]; then
+            echo "save-to-filepath failed"
+            exit 1
+          fi
 
-          if ( $AwsSsmParameter != $env:AWS_SSM_PARAMETER ) {
-            "parameter values do not match"
-            "failed=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
+          if [[ -z "$VAL_FROM_ENV" ]]; then
+            echo "save-to-env-var failed"
+            exit 1
+          fi
+
+          if [[ "$VAL_FROM_FILE" != "$VAL_FROM_ENV" ]]; then
+            echo "parameter values do not match"
+            exit 1
+          fi
 
       - name: Cleanup parameter
-        shell: pwsh
-        run: Remote-Item -Force ${{ github.workspace }}/aws-ssm-parameter.txt
-
-      - name: Fail
-        if: steps.assert.output.failed == 'true'
-        shell: pwsh
-        run: exit 1
-
-
+        if: always()
+        shell: bash
+        run: rm -f ${{ github.workspace }}/aws-ssm-parameter.txt

@@ -38,23 +38,29 @@ runs:
         role-session-name: ${{ inputs.aws-role-session-name }}
 
     - name: Assert input parameters valid
-      shell: bash
       if: inputs.save-to-env-var == '' && inputs.save-to-filepath == ''
+      shell: bash
       run: |
         echo "::error ::Please specify either save-to-env-var or save-to-filepath as an input."
         exit 1
 
-    - name: Fetch parameter to environment (Windows)
-      if: runner.os == 'Windows' && inputs.save-to-env-var != ''
-      shell: pwsh
+    - name: Fetch parameter
+      id: parameter
+      shell: bash
       run: |
-        $PARAMETER_VALUE = (aws ssm get-parameter --with-decryption --name ${{ inputs.aws-ssm-parameter }} | ConvertFrom-Json).Parameter.Value
+        PARAMETER_VALUE="$(aws ssm get-parameter --with-decryption --name ${{ inputs.aws-ssm-parameter }} | jq -r '.Parameter.Value')"
         echo "::add-mask::$PARAMETER_VALUE"
-        echo "${{ inputs.save-to-env-var }}=$PARAMETER_VALUE" >> "$env:GITHUB_ENV"
+        echo "value=$PARAMETER_VALUE" >> "$GITHUB_OUTPUT"
 
-    - name: Fetch parameter to file (Windows)
-      if: runner.os == 'Windows' && inputs.save-to-filepath != ''
-      shell: pwsh
+    - name: Save parameter to environment
+      if: inputs.save-to-env-var != ''
+      shell: bash
+      run: echo "${{ inputs.save-to-env-var }}=${{ steps.parameter.outputs.value }}" >> "$GITHUB_ENV"
+
+    - name: Save parameter to file
+      if: inputs.save-to-filepath != ''
+      shell: bash
       run: |
-        $paramValue = (aws ssm get-parameter --with-decryption --name ${{ inputs.aws-ssm-parameter }} | ConvertFrom-Json).Parameter.Value
-        Set-Content -Path ${{ inputs.save-to-filepath }} -Value $paramValue
+        # Handle Windows path separators.
+        OUTPUT_FILE=$(sed "s/\\\/\//g" <<< "${{ inputs.save-to-filepath }}")
+        echo "${{ steps.parameter.outputs.value }}" > $OUTPUT_FILE
