@@ -51,5 +51,5 @@ save-to-filepath:
 ### Platform Support
 
 - [x] Windows
-- [ ] MacOS
-- [ ] Linux
+- [x] MacOS
+- [x] Linux
